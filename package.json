@@ -1,0 +1,15 @@
+{
+  "name": "brainhound",
+  "version": "0.1.0",
+  "description": "Search and read public neuroscience data from your coding agent: DANDI, OpenNeuro, NeuroMorpho, Allen and BrainGlobe, with remote NWB slices and a license and citation for every dataset. An MCP server and CLI with no dependencies.",
+  "license": "MIT",
+  "author": "stanczykwyatt",
+  "type": "module",
+  "bin": { "brainhound": "src/cli.js" },
+  "files": ["src", "skills", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "https://github.com/stanczykwyatt/brainhound.git" },
+  "homepage": "https://stanczykwyatt.github.io/brainhound/",
+  "keywords": ["mcp", "neuroscience", "nwb", "hdf5", "dandi", "openneuro", "neuromorpho", "allen-brain-atlas", "brainglobe", "agent-skills"],
+  "scripts": { "test": "node --test test/*.test.js" }
+}
