@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>brainhound: search DANDI, OpenNeuro and NeuroMorpho and read NWB files remotely (MCP server)</title>
+  <meta name="description" content="brainhound lets Claude Code, Codex, Cursor and other coding agents search DANDI, OpenNeuro and NeuroMorpho, look up Allen brain regions and BrainGlobe atlases, and read NWB files on DANDI without downloading them, with each dataset's license and citation. Free, open source, read-only.">
+  <meta name="keywords" content="dandi mcp server, nwb mcp, read nwb without downloading, openneuro mcp, neuromorpho api, allen brain atlas region lookup, neuroscience agent skills, remote hdf5 reader">
+  <link rel="canonical" href="https://stanczykwyatt.github.io/brainhound/">
+  <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="site.css">
+  <meta name="theme-color" content="#0d0f12">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="brainhound">
+  <meta property="og:description" content="Search and read public neuroscience data from your agent. An 8.4 GB NWB file on DANDI, summarized from 1.3 MB, with its license and citation.">
+  <meta property="og:url" content="https://stanczykwyatt.github.io/brainhound/">
+  <meta property="og:image" content="https://stanczykwyatt.github.io/brainhound/social.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "brainhound",
+    "description": "An MCP server, CLI and agent skills that search DANDI, OpenNeuro and NeuroMorpho, look up Allen brain regions and BrainGlobe atlases, and read NWB files on DANDI remotely, with each dataset's license and citation.",
+    "operatingSystem": "macOS, Linux, Windows (Node 20 or later)",
+    "applicationCategory": "DeveloperApplication",
+    "url": "https://stanczykwyatt.github.io/brainhound/",
+    "softwareVersion": "0.1.0",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "featureList": ["Search DANDI, OpenNeuro and NeuroMorpho at once", "Read NWB files on DANDI with HTTP range requests", "NWB summaries, trees, slices and tables", "Allen brain region lookup", "BrainGlobe atlas list", "License and citation for every dataset", "Agent skills", "Read-only, no dependencies"],
+    "author": { "@type": "Person", "name": "Wyatt Stanczyk", "url": "https://wyattstanczyk.com" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "How can I read an NWB file on DANDI without downloading it?", "acceptedAnswer": { "@type": "Answer", "text": "brainhound reads NWB files where they sit on DANDI's servers with HTTP range requests, fetching only the file's index and the chunks a slice touches. Summarizing an 8.4 GB recording read 1.3 MB. Use nwb_summary, nwb_tree, nwb_read and nwb_table, or brainhound summary in a terminal." } },
+      { "@type": "Question", "name": "Is there an MCP server for DANDI, OpenNeuro and NeuroMorpho?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. brainhound is a free, open-source MCP server that searches DANDI, OpenNeuro and NeuroMorpho.Org at once, and works with Claude Code, Codex, Cursor, Gemini CLI and any other MCP client. Add it with the command npx -y github:stanczykwyatt/brainhound#v0.1.0 serve." } },
+      { "@type": "Question", "name": "How do I find the license and citation for a DANDI dataset?", "acceptedAnswer": { "@type": "Answer", "text": "Run dataset_info, or brainhound info dandi:000003 in a terminal. It shows the dandiset's license and DANDI's ready-made citation with the version DOI. It does the same for OpenNeuro datasets and NeuroMorpho neurons." } },
+      { "@type": "Question", "name": "How do I look up an Allen brain region acronym?", "acceptedAnswer": { "@type": "Answer", "text": "brain_region finds a region by acronym or name in the Allen ontology for mouse, human or developing mouse, and gives its id, full name, color and chain of parent regions, such as root > grey > CH > CTX > CTXpl > HPF > HIP > CA > CA1." } },
+      { "@type": "Question", "name": "Is it safe to give a coding agent?", "acceptedAnswer": { "@type": "Answer", "text": "Every tool only reads. brainhound writes nothing to disk, reaches only six fixed archive hosts over https, opens local files only inside a folder you name, and has no dependencies." } },
+      { "@type": "Question", "name": "Which HDF5 and NWB files can it read?", "acceptedAnswer": { "@type": "Answer", "text": "Files written with HDF5's default settings, as pynwb, h5py and MatNWB write them, and files in the newest HDF5 format, with gzip, shuffle and fletcher32. Other compression filters and NWB files stored as Zarr say so plainly." } }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <div class="scene" aria-hidden="true"></div>
+  <main class="glass">
+    <div class="edge" aria-hidden="true"></div>
+    <div class="content">
+      <nav class="bar" aria-label="Site">
+        <a class="label" href="https://github.com/stanczykwyatt/brainhound/releases/tag/v0.1.0">brainhound · v0.1</a>
+        <a class="label" href="https://github.com/stanczykwyatt/brainhound">github ↗</a>
+      </nav>
+      <section class="center">
+        <div class="title">
+          <img class="icon" src="icon.png" alt="" width="76" height="76">
+          <h1>brainhound</h1>
+        </div>
+        <p class="lede">Search and read public neuroscience data from your agent. One search across DANDI, OpenNeuro and NeuroMorpho, NWB files read where they sit, and a license and citation with every dataset.</p>
+        <img class="shot" src="demo.gif" width="720" height="450" alt="Drawn demo from real output: a search for hippocampus finds datasets on DANDI, OpenNeuro and NeuroMorpho; a summary of an 8.4 GB NWB session reads 1.3 MB; unit 0's first spike times come back with the dataset's license and citation.">
+        <div class="actions" style="margin-top: 22px">
+          <a class="button solid" href="https://github.com/stanczykwyatt/brainhound#set-it-up">Set it up</a>
+          <a class="button" href="https://github.com/stanczykwyatt/brainhound">
+            <svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.4l1.95 4.02 4.43.6-3.23 3.08.79 4.4L8 11.38 4.06 13.5l.79-4.4L1.62 6.02l4.43-.6z"/></svg>
+            Star on GitHub
+          </a>
+        </div>
+        <p class="label">free · open source · mcp server, cli and skills · read-only · no dependencies</p>
+      </section>
+      <section class="section" aria-labelledby="tools-title">
+        <h2 id="tools-title">Find it, open it, cite it</h2>
+        <ul class="verdicts">
+          <li class="key"><b>search_datasets:</b> DANDI, OpenNeuro and NeuroMorpho at once, each result with its license.</li>
+          <li class="key"><b>nwb_summary, nwb_read, nwb_table:</b> what's in an NWB session, slices of its data and rows of its tables, read remotely. An 8.4 GB file took 1.3 MB.</li>
+          <li><b>dataset_info:</b> description, species, techniques, authors, license and a ready-to-paste citation.</li>
+          <li><b>brain_region and brain_atlases:</b> Allen region acronyms, ids and parents, and BrainGlobe's atlases.</li>
+          <li><b>neuron_morphology:</b> a NeuroMorpho neuron's morphometry, SWC file and the three citations it asks for.</li>
+          <li><b>Four skills</b> that teach an agent NWB conventions, region matching and fair morphology comparisons.</li>
+        </ul>
+      </section>
+      <section class="section" aria-labelledby="setup-title">
+        <h2 id="setup-title">Set up in one line</h2>
+        <ul class="verdicts">
+          <li><b>Claude Code:</b> <code>claude mcp add brainhound -- npx -y github:stanczykwyatt/brainhound#v0.1.0 serve</code></li>
+          <li><b>Codex</b> <code>~/.codex/config.toml</code>: <code>[mcp_servers.brainhound]</code> with <code>command = "npx"</code>, <code>args = ["-y", "github:stanczykwyatt/brainhound#v0.1.0", "serve"]</code></li>
+          <li><b>Cursor, Gemini CLI and Claude Desktop:</b> the same command under <code>mcpServers</code>.</li>
+          <li><b>Skills:</b> <code>npx skills add stanczykwyatt/brainhound</code></li>
+        </ul>
+      </section>
+      <section class="section" aria-labelledby="faq-title">
+        <h2 id="faq-title">Questions</h2>
+        <details><summary>How can I read an NWB file on DANDI without downloading it?</summary><p>brainhound reads NWB files where they sit on DANDI's servers with HTTP range requests, fetching only the file's index and the chunks a slice touches. Summarizing an 8.4 GB recording read 1.3 MB. Use nwb_summary, nwb_tree, nwb_read and nwb_table, or brainhound summary in a terminal.</p></details>
+        <details><summary>Is there an MCP server for DANDI, OpenNeuro and NeuroMorpho?</summary><p>Yes. brainhound is a free, open-source MCP server that searches DANDI, OpenNeuro and NeuroMorpho.Org at once, and works with Claude Code, Codex, Cursor, Gemini CLI and any other MCP client. Add it with the command npx -y github:stanczykwyatt/brainhound#v0.1.0 serve.</p></details>
+        <details><summary>How do I find the license and citation for a DANDI dataset?</summary><p>Run dataset_info, or brainhound info dandi:000003 in a terminal. It shows the dandiset's license and DANDI's ready-made citation with the version DOI. It does the same for OpenNeuro datasets and NeuroMorpho neurons.</p></details>
+        <details><summary>How do I look up an Allen brain region acronym?</summary><p>brain_region finds a region by acronym or name in the Allen ontology for mouse, human or developing mouse, and gives its id, full name, color and chain of parent regions, such as root &gt; grey &gt; CH &gt; CTX &gt; CTXpl &gt; HPF &gt; HIP &gt; CA &gt; CA1.</p></details>
+        <details><summary>Is it safe to give a coding agent?</summary><p>Every tool only reads. brainhound writes nothing to disk, reaches only six fixed archive hosts over https, opens local files only inside a folder you name, and has no dependencies.</p></details>
+        <details><summary>Which HDF5 and NWB files can it read?</summary><p>Files written with HDF5's default settings, as pynwb, h5py and MatNWB write them, and files in the newest HDF5 format, with gzip, shuffle and fletcher32. Other compression filters and NWB files stored as Zarr say so plainly.</p></details>
+      </section>
+      <footer class="foot">
+        <p>Also free: <a href="https://stanczykwyatt.github.io/symbolhop/">symbolhop</a>, <a href="https://stanczykwyatt.github.io/mulligan/">mulligan</a>, <a href="https://stanczykwyatt.github.io/who-stole-my-focus/">Who Stole My Focus</a>, <a href="https://stanczykwyatt.github.io/show-desktop/">Show Desktop</a> and <a href="https://stanczykwyatt.github.io/copy-2fa/">Copy 2FA</a>.</p>
+        <p>This site has no cookies or tracking. MIT License. Not affiliated with DANDI, OpenNeuro, NeuroMorpho.Org, the Allen Institute, BrainGlobe or NWB; data belongs to its authors under its own license. Claude Code, Codex, Gemini and Cursor are their owners' trademarks, named only as what brainhound works with.</p>
+      </footer>
+    </div>
+  </main>
+</body>
+</html>
