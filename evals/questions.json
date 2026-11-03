@@ -1,0 +1,92 @@
+{
+  "about": "Questions with known answers, for checking that brainhound (and an agent using it) finds the right facts. Each names the tool call that answers it and patterns the answer must contain. The test suite replays the recorded ones offline; scripts/run-evals.mjs --live asks the archives. live_only questions read real NWB bytes, which the offline tests replace with a made-up file.",
+  "questions": [
+    {
+      "id": "dandi-license",
+      "question": "What license is DANDI dandiset 000003 shared under?",
+      "tool": "dataset_info",
+      "arguments": { "id": "dandi:000003" },
+      "expect": ["License: CC BY 4\\.0"]
+    },
+    {
+      "id": "dandi-citation-doi",
+      "question": "What DOI should I cite for dandiset 000003?",
+      "tool": "dataset_info",
+      "arguments": { "id": "dandi:000003" },
+      "expect": ["doi\\.org/10\\.48324/dandi\\.000003/"]
+    },
+    {
+      "id": "dandi-species",
+      "question": "Which species was recorded in dandiset 000003?",
+      "tool": "dataset_info",
+      "arguments": { "id": "dandi:000003" },
+      "expect": ["Species: House mouse"]
+    },
+    {
+      "id": "dandi-paper",
+      "question": "Which paper describes dandiset 000003?",
+      "tool": "dataset_info",
+      "arguments": { "id": "dandi:000003" },
+      "expect": ["10\\.1016/j\\.neuron\\.2016\\.12\\.011"]
+    },
+    {
+      "id": "openneuro-license-and-task",
+      "question": "What task and license does OpenNeuro ds000001 have, and how many subjects?",
+      "tool": "dataset_info",
+      "arguments": { "id": "openneuro:ds000001" },
+      "expect": ["License: CC0", "Tasks: balloon analog risk task", "Subjects: 16"]
+    },
+    {
+      "id": "allen-ca1",
+      "question": "What is the Allen id of CA1, and which region contains it?",
+      "tool": "brain_region",
+      "arguments": { "query": "CA1" },
+      "expect": ["id 382", "HIP > CA > CA1"]
+    },
+    {
+      "id": "allen-visp",
+      "question": "What is the acronym for the mouse primary visual area?",
+      "tool": "brain_region",
+      "arguments": { "query": "primary visual", "limit": 2 },
+      "expect": ["VISp {2}Primary visual area"]
+    },
+    {
+      "id": "neuromorpho-n419",
+      "question": "How many bifurcations does NeuroMorpho neuron n419 have, and where is it from?",
+      "tool": "neuron_morphology",
+      "arguments": { "id": "n419" },
+      "expect": ["Bifurcations: 75", "Brain region: hippocampus, CA1", "Species: rat"]
+    },
+    {
+      "id": "brainglobe-voxels",
+      "question": "What voxel size does BrainGlobe's allen_mouse_25um atlas have?",
+      "tool": "brain_atlases",
+      "arguments": { "query": "allen mouse 25um" },
+      "expect": ["allen_mouse_25um \\(version [\\d.]+\\) {2}Mus musculus, 25×25×25 µm voxels"]
+    },
+    {
+      "id": "nwb-units",
+      "question": "How many sorted units are in the 2014-03-27 session of YutaMouse20 in dandiset 000003?",
+      "tool": "nwb_summary",
+      "arguments": { "asset": "dandi:000003/sub-YutaMouse20/sub-YutaMouse20_ses-YutaMouse20-140327_behavior+ecephys.nwb" },
+      "expect": ["Units: 14,", "Electrodes: 65"],
+      "live_only": true
+    },
+    {
+      "id": "nwb-lfp-rate",
+      "question": "What is the LFP sampling rate in that session, and how is its voltage scaled?",
+      "tool": "nwb_tree",
+      "arguments": { "asset": "dandi:000003/sub-YutaMouse20/sub-YutaMouse20_ses-YutaMouse20-140327_behavior+ecephys.nwb", "path": "/processing/ecephys/LFP", "depth": 2 },
+      "expect": ["rate=1250", "unit=volts conversion=1\\.95e-7"],
+      "live_only": true
+    },
+    {
+      "id": "nwb-first-spike",
+      "question": "When is unit 0's first spike in that session?",
+      "tool": "nwb_table",
+      "arguments": { "asset": "dandi:000003/sub-YutaMouse20/sub-YutaMouse20_ses-YutaMouse20-140327_behavior+ecephys.nwb", "path": "/units", "columns": ["spike_times"], "count": 1 },
+      "expect": ["51205 values: \\[0\\.4538,"],
+      "live_only": true
+    }
+  ]
+}

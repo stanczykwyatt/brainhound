@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15]
+        # The oldest Node brainhound supports, and the current one.
+        node: [20, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run tests (offline, against recorded answers)
+        run: node --test test/hdf5.test.js test/tools.test.js test/mcp.test.js test/evals.test.js
+
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Check it only reads, never runs programs, and only reaches the listed archives
+        run: node scripts/check-rules.mjs
+
+      - name: Check every skill has a name, a description and a version
+        run: |
+          for f in skills/*/SKILL.md; do
+            dir=$(basename "$(dirname "$f")")
+            head -12 "$f" | grep -q "^name: $dir$" || { echo "::error file=$f::name must be $dir"; exit 1; }
+            head -12 "$f" | grep -q "^description: ." || { echo "::error file=$f::needs a description"; exit 1; }
+            head -12 "$f" | grep -q '^  version: "' || { echo "::error file=$f::needs a quoted metadata.version"; exit 1; }
+          done
+          echo "Skills OK."

@@ -1,0 +1,10 @@
+name: Idea
+description: An archive, a file format, a skill or a feature you'd like.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+    validations:
+      required: true

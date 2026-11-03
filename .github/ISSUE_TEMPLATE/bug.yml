@@ -1,0 +1,19 @@
+name: Bug report
+description: A wrong answer, a file that won't open, or something else that isn't working.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: The tool or command, its arguments, and what came back. For a file that won't open, a public DANDI path helps most.
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent or MCP client, with its version
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and Node version
