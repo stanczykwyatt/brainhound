@@ -15,7 +15,7 @@ export function fakeFetch({ blobs = { [BLOB]: fixture("earliest.nwb") }, log = [
     if (blobs[url]) {
       const bytes = readFileSync(blobs[url]);
       const m = /bytes=(\d+)-(\d+)/.exec(init.headers?.range ?? "");
-      if (!m || ignoreRange) return new Response(bytes, { status: 200 });
+      if (!m || ignoreRange) return new Response(bytes, { status: 200, headers: { "content-length": String(ignoreRange === "huge" ? 8e9 : bytes.length) } });
       const start = Number(m[1]);
       if (start >= bytes.length) return new Response("", { status: 416 });
       const end = Math.min(Number(m[2]), bytes.length - 1);

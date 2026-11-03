@@ -111,6 +111,11 @@ def nwb_like(path, libver):
         extra.create_dataset("partial", data=np.arange(10, dtype=np.int32), chunks=(4,), maxshape=(None,))
         extra.create_dataset("unwritten", shape=(3,), dtype=np.int32, fillvalue=9)
         extra["soft"] = h5py.SoftLink("/units")
+        # Text beyond ASCII, as units and author names often are.
+        extra.create_dataset("utf8", data=np.array(["µV", "Buzsáki", "海马"], dtype=object), dtype=vlen)
+        extra.attrs["unit_text"] = "µV"
+        # Chunked but never written: reads give the fill value.
+        extra.create_dataset("unwritten_chunked", shape=(6,), dtype=np.int16, chunks=(2,), fillvalue=7)
         many = extra.create_group("many_attrs")
         for i in range(12):
             many.attrs[f"a{i:02d}"] = i

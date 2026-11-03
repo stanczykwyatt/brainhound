@@ -161,7 +161,7 @@ export class Hound {
       const hit = this.open.get(key);
       this.open.delete(key);
       this.open.set(key, hit);
-      return hit;
+      return fresh(await hit);
     }
     let source;
     let name = key;
@@ -185,7 +185,7 @@ export class Hound {
     this.open.set(key, promise);
     promise.catch(() => this.open.delete(key));
     while (this.open.size > 4) this.open.delete(this.open.keys().next().value);
-    return promise;
+    return fresh(await promise);
   }
 
   footer(f) {
@@ -507,6 +507,12 @@ export class Hound {
 }
 
 const product = (a) => a.reduce((x, y) => x * y, 1);
+
+/** Starts a new question's work budget on an open file. */
+function fresh(file) {
+  file.work = 0;
+  return file;
+}
 
 function shapeText(info) {
   if (info.space.kind === "null") return "(empty)";

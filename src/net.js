@@ -102,6 +102,14 @@ export class Net {
     const response = await this.request(url, { headers: { range: `bytes=${start}-${end}` } });
     if (response.status === 416) throw new RangeError(`The file ends before byte ${start}.`);
     if (response.status !== 206 && response.status !== 200) throw new NetError(`${new URL(url).hostname} answered ${response.status} to a range request.`);
+    if (response.status === 200) {
+      // The server ignored the range. Take the whole file only when it's small and says so.
+      const size = Number(response.headers.get("content-length"));
+      if (!Number.isFinite(size) || size <= 0 || size > 16 * 1024 * 1024) {
+        await response.body?.cancel().catch(() => {});
+        throw new NetError(`${new URL(url).hostname} doesn't answer range requests, so brainhound won't download the whole file.`);
+      }
+    }
     let body = Buffer.from(await response.arrayBuffer());
     let total;
     const contentRange = response.headers.get("content-range");

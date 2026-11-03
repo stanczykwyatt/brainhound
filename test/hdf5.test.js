@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { writeFileSync, readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Hdf5File, Hdf5Error, describeType, reshape, MAX_READ_BYTES } from "../src/hdf5/hdf5.js";
+import { deflateSync } from "node:zlib";
+import { Hdf5File, Hdf5Error, describeType, reshape, fletcher32, MAX_READ_BYTES } from "../src/hdf5/hdf5.js";
 import { FileSource, HttpSource } from "../src/hdf5/source.js";
 import { Net } from "../src/net.js";
 import { fixture, fakeFetch, BLOB } from "./helpers.mjs";
@@ -106,6 +107,17 @@ for (const name of FILES) {
     assert.deepEqual((await read(f, "/extra/checksummed", [95], [5])).values, [95, 96, 97, 98, 99]);
     assert.deepEqual((await read(f, "/extra/partial")).values, Array.from({ length: 10 }, (_, i) => i));
     assert.deepEqual((await read(f, "/extra/unwritten")).values, [9, 9, 9]);
+  });
+
+  test(`${name}: UTF-8 text stays UTF-8, in datasets and attributes`, async () => {
+    const f = await open();
+    assert.deepEqual((await read(f, "/extra/utf8")).values, ["µV", "Buzsáki", "海马"]);
+    assert.equal((await f.attributes((await f.resolve("/extra")).address)).unit_text, "µV");
+  });
+
+  test(`${name}: a chunked dataset that was never written reads as its fill value`, async () => {
+    const f = await open();
+    assert.deepEqual((await read(f, "/extra/unwritten_chunked", [1], [4])).values, [7, 7, 7, 7]);
   });
 
   test(`${name}: object references become paths`, async () => {
@@ -238,17 +250,19 @@ test("over HTTP, a slice costs a few small range requests, not the file", async 
   assert.equal(log[0].headers["user-agent"].split("/")[0], "brainhound");
 });
 
-test("over HTTP, a server that ignores ranges still gives the right bytes", async () => {
+test("over HTTP, a server that ignores ranges is used only for a small file", async () => {
   const net = new Net({ fetch: fakeFetch({ ignoreRange: true }), gap: 0 });
   const f = await Hdf5File.open(new HttpSource(BLOB, net));
   assert.deepEqual((await read(f, "/extra/compact")).values, [0, 1, 2, 3]);
+  const big = new Net({ fetch: fakeFetch({ ignoreRange: "huge" }), gap: 0 });
+  await assert.rejects(Hdf5File.open(new HttpSource(BLOB, big)), /doesn't answer range requests/);
 });
 
 test("huge reads are refused before anything is fetched", async () => {
   const f = await Hdf5File.open(new FileSource(fixture("earliest.nwb")));
   const info = await f.dataset((await f.resolve("/extra/cube")).address);
   const fake = { ...info, space: { ...info.space, dims: [1e6, 1e3, 1e3] } };
-  await assert.rejects(f.readSlice(fake, [0, 0, 0], [1e5, 1e3, 1e3]), /ask for a smaller slice/);
+  await assert.rejects(f.readSlice(fake, [0, 0, 0], [1e5, 1e3, 1e3]), /ask for at most 10000000/);
   assert.ok(MAX_READ_BYTES >= 64 * 1024 * 1024);
 });
 
@@ -259,4 +273,31 @@ test("reshape nests flat values row by row", () => {
   ]);
   assert.deepEqual(reshape([1, 2, 3, 4], [2, 1, 2]), [[[1, 2]], [[3, 4]]]);
   assert.deepEqual(reshape([7], [1]), [7]);
+});
+
+test("a chunk that inflates past its size is refused, not unpacked", async () => {
+  const f = await Hdf5File.open(new FileSource(fixture("earliest.nwb")));
+  const bomb = deflateSync(Buffer.alloc(20 * 1024 * 1024));
+  assert.throws(() => f.unfilter(bomb, [{ id: 1, name: "gzip", params: [] }], 0, 64, 1), /inflates past its size/);
+});
+
+test("fletcher32 matches HDF5, and a damaged checksummed chunk is caught", async () => {
+  // Known values: HDF5's checksum of these bytes, as its own test suite computes it.
+  assert.equal(fletcher32(Buffer.from([])), 0);
+  assert.equal(fletcher32(Buffer.from([0x01, 0x02])), (0x0102 << 16 | 0x0102) >>> 0);
+  const f = await Hdf5File.open(new FileSource(fixture("earliest.nwb")));
+  const info = await f.dataset((await f.resolve("/extra/checksummed")).address);
+  const [chunk] = await f.chunksFor(info, [0], [10]);
+  const bytes = Buffer.from(readFileSync(fixture("earliest.nwb")));
+  bytes[f.base + chunk.address + 2] ^= 0xff;
+  const dir = mkdtempSync(path.join(tmpdir(), "brainhound-"));
+  writeFileSync(path.join(dir, "bad.nwb"), bytes);
+  const g = await Hdf5File.open(new FileSource(path.join(dir, "bad.nwb")));
+  const bad = await g.dataset((await g.resolve("/extra/checksummed")).address);
+  await assert.rejects(g.readSlice(bad, [0], [10]), /checksum doesn't match/);
+  assert.deepEqual((await g.readSlice(bad, [10], [3])).values, [10, 11, 12], "other chunks still read");
+});
+
+test("a damaged length can't make a local read allocate past the file", async () => {
+  await assert.rejects(new FileSource(fixture("earliest.nwb")).read(0, 4e9), /file ends before/);
 });

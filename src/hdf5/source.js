@@ -21,6 +21,8 @@ export class FileSource {
   async read(offset, length) {
     const handle = await open(this.path, "r");
     try {
+      // Check against the real size before allocating, so a damaged length can't claim gigabytes.
+      if (offset + length > (await handle.stat()).size) throw new RangeError(`The file ends before byte ${offset + length}.`);
       const buffer = Buffer.alloc(length);
       const { bytesRead } = await handle.read(buffer, 0, length, offset);
       if (bytesRead < length) throw new RangeError(`The file ends before byte ${offset + length}.`);

@@ -188,8 +188,24 @@ export async function handle(hound, message) {
 export function serve({ input = process.stdin, output = process.stdout, files, net } = {}) {
   const hound = new Hound({ files, net });
   let buffer = "";
+  const pending = new Set();
   const write = (response) => {
     if (response) output.write(JSON.stringify(response) + "\n");
+  };
+  const run = (line) => {
+    if (!line) return;
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      write({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Not JSON." } });
+      return;
+    }
+    const job = handle(hound, message)
+      .then(write, (e) => write({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }))
+      .catch(() => {})
+      .finally(() => pending.delete(job));
+    pending.add(job);
   };
   input.setEncoding("utf8");
   input.on("data", (chunk) => {
@@ -199,19 +215,15 @@ export function serve({ input = process.stdin, output = process.stdout, files, n
     while ((newline = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, newline).trim();
       buffer = buffer.slice(newline + 1);
-      if (!line) continue;
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        write({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Not JSON." } });
-        continue;
-      }
-      handle(hound, message)
-        .then(write, (e) => write({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32603, message: String(e?.message ?? e) } }))
-        .catch(() => {});
+      run(line);
     }
   });
-  input.on("end", () => process.exit(0));
+  // When the client closes stdin, answer what's still in flight (and a last line with no newline), then stop.
+  input.on("end", async () => {
+    run(buffer.trim());
+    buffer = "";
+    while (pending.size) await Promise.allSettled([...pending]);
+    output.write("", () => process.exit(0));
+  });
   return hound;
 }

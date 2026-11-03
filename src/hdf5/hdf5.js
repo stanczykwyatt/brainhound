@@ -10,6 +10,12 @@ const SIGNATURE = Buffer.from([0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a]);
 const UNDEFINED = -1;
 // The most raw bytes one read may gather, so a careless request can't pull gigabytes.
 export const MAX_READ_BYTES = 128 * 1024 * 1024;
+// The most values one read may decode, since each becomes a JavaScript value.
+export const MAX_VALUES = 10_000_000;
+// The largest piece of the file's own bookkeeping (a header, a heap, an index node) brainhound will read.
+const MAX_STRUCTURE = 16 * 1024 * 1024;
+// How many index nodes and heap objects one call may visit, so a hostile file can't loop it for hours.
+const WORK_LIMIT = 200_000;
 const FILTER_NAMES = { 1: "gzip", 2: "shuffle", 3: "fletcher32", 4: "szip", 5: "nbit", 6: "scaleoffset", 32000: "lzf", 32001: "blosc", 32004: "lz4", 32008: "bitshuffle", 32015: "zstd" };
 
 /** A cursor over a buffer that knows the file's address and length sizes. */
@@ -176,7 +182,7 @@ function parseDatatype(c) {
     }
     case 9: // variable-length
       t.kind = (bits & 0x0f) === 1 ? "vlen-string" : "vlen";
-      t.charset = (bits >> 12) & 0x0f;
+      t.charset = (bits >> 8) & 0x0f;
       t.base = parseDatatype(c);
       break;
     case 10: {
@@ -193,6 +199,7 @@ function parseDatatype(c) {
     default:
       throw new Hdf5Error(`Unknown datatype class ${cls}.`);
   }
+  if (size === 0) throw new Hdf5Error("A datatype in the file has no size; the file may be damaged.");
   t.encodedLength = c.at - start;
   return t;
 }
@@ -351,7 +358,21 @@ export class Hdf5File {
 
   read(address, length) {
     if (address === UNDEFINED) throw new Hdf5Error("Tried to read from an unset address.");
+    if (length > MAX_READ_BYTES) throw new Hdf5Error("A piece of the file is larger than brainhound will read at once; the file may be damaged.");
     return this.source.read(this.base + address, length);
+  }
+
+  /** Reads part of the file's own structure, which is never big in a sound file. */
+  structure(address, length) {
+    if (length > MAX_STRUCTURE) throw new Hdf5Error("A structure in the file claims to be huge; the file may be damaged.");
+    this.spend(1);
+    return this.read(address, length);
+  }
+
+  /** Counts work done in one call; callers reset `work` before each question. */
+  spend(n) {
+    this.work = (this.work ?? 0) + n;
+    if (this.work > WORK_LIMIT) throw new Hdf5Error("Reading this would take too much work; the file may be damaged, or the request too broad.");
   }
 
   cursor(buffer, at = 0) {
@@ -379,15 +400,15 @@ export class Hdf5File {
       const flags = c.u8();
       let prefix = 6 + (flags & 0x20 ? 16 : 0) + (flags & 0x10 ? 4 : 0);
       const sizeBytes = 1 << (flags & 3);
-      const pre = await this.read(address, prefix + sizeBytes);
+      const pre = await this.structure(address, prefix + sizeBytes);
       const chunkSize = Number(this.cursor(pre, prefix).uint(sizeBytes));
       prefix += sizeBytes;
-      const block = await this.read(address + prefix, chunkSize);
+      const block = await this.structure(address + prefix, chunkSize);
       const queue = [];
       this.parseV2Messages(block, 0, chunkSize, flags, messages, queue);
       while (queue.length) {
         const { at, length } = queue.shift();
-        const more = await this.read(at, length);
+        const more = await this.structure(at, length);
         if (more.subarray(0, 4).toString("latin1") !== "OCHK") throw new Hdf5Error("An object header continuation is damaged.");
         this.parseV2Messages(more, 4, length - 4, flags, messages, queue);
       }
@@ -403,7 +424,7 @@ export class Hdf5File {
       let seen = 0;
       while (queue.length && seen < count) {
         const { at, length } = queue.shift();
-        const block = await this.read(at, length);
+        const block = await this.structure(at, length);
         const m = this.cursor(block);
         while (m.at + 8 <= block.length && seen < count) {
           seen++;
@@ -518,19 +539,22 @@ export class Hdf5File {
     const dataSize = h.len();
     h.len();
     const dataAddress = h.addr();
-    const names = await this.read(dataAddress, dataSize);
+    const names = await this.structure(dataAddress, dataSize);
     const links = [];
     // Each step down must be one level lower, so a damaged index can't send the walk in circles.
+    const seen = new Set();
     const visit = async (node, expected = -1) => {
+      if (seen.has(node)) throw new Hdf5Error("A group's index points back at itself; the file may be damaged.");
+      seen.add(node);
       const prefix = 8 + 2 * this.offsetSize;
-      const head = await this.read(node, prefix);
+      const head = await this.structure(node, prefix);
       const c = this.cursor(head);
       c.signature("TREE");
       const type = c.u8();
       const level = c.u8();
       const used = c.u16();
       if (type !== 0 || (expected >= 0 && level !== expected)) throw new Hdf5Error("A group's index is damaged.");
-      const body = await this.read(node + prefix, (2 * used + 1) * this.lengthSize + used * this.offsetSize);
+      const body = await this.structure(node + prefix, (2 * used + 1) * this.lengthSize + used * this.offsetSize);
       const b = this.cursor(body);
       const children = [];
       b.len();
@@ -548,13 +572,13 @@ export class Hdf5File {
   }
 
   async readSymbolNode(address, names, links) {
-    const head = await this.read(address, 8);
+    const head = await this.structure(address, 8);
     const c = this.cursor(head);
     c.signature("SNOD");
     c.skip(2);
     const count = c.u16();
     const entrySize = 2 * this.offsetSize + 8 + 16;
-    const body = await this.read(address + 8, count * entrySize);
+    const body = await this.structure(address + 8, count * entrySize);
     const b = this.cursor(body);
     for (let i = 0; i < count; i++) {
       const nameOffset = b.addr();
@@ -685,7 +709,10 @@ export class Hdf5File {
   // ----- decoding values
 
   /** Turns raw element bytes into JavaScript values: numbers, strings, objects for compounds. */
-  async decode(bytes, t, count) {
+  async decode(bytes, t, count, depth = 0) {
+    if (count * t.size > bytes.length) throw new Hdf5Error("A value in the file is cut short; the file may be damaged.");
+    if (count > MAX_VALUES) throw new Hdf5Error("That's too many values for one read; ask for a smaller slice.");
+    if (depth > 4) throw new Hdf5Error("Variable-length values nest too deeply; the file may be damaged.");
     const out = new Array(count);
     const vlens = [];
     const refs = [];
@@ -736,9 +763,10 @@ export class Hdf5File {
         v.slot[v.key] = v.type.kind === "vlen-string" ? "" : [];
         continue;
       }
+      this.spend(1);
       const object = await this.globalHeapObject(v.collection, v.index);
       if (v.type.kind === "vlen-string") v.slot[v.key] = object.toString(v.type.charset === 1 ? "utf8" : "latin1").replace(/\0+$/, "");
-      else v.slot[v.key] = await this.decode(object, v.type.base, v.length);
+      else v.slot[v.key] = await this.decode(object, v.type.base, v.length, depth + 1);
     }
     for (const r of refs) r.slot[r.key] = { ref: (await this.pathOf(r.address)) ?? `object at ${r.address}` };
     return out;
@@ -752,7 +780,7 @@ export class Hdf5File {
         c.signature("GCOL");
         c.skip(4);
         const size = c.len();
-        const body = await this.read(collection, size);
+        const body = await this.structure(collection, size);
         const objects = new Map();
         const b = this.cursor(body, 8 + this.lengthSize);
         while (b.at + 8 + this.lengthSize <= body.length) {
@@ -834,7 +862,7 @@ export class Hdf5File {
     } else {
       ({ blockAddress, blockOffset } = await this.findDirectBlock(heap, heap.root, heap.rows, 0, offset));
     }
-    return this.read(blockAddress + (offset - blockOffset), length);
+    return this.structure(blockAddress + (offset - blockOffset), length);
   }
 
   async findDirectBlock(heap, address, rows, base, offset, depth = 0) {
@@ -843,7 +871,7 @@ export class Hdf5File {
     const indirectRows = rows - directRows;
     const prefix = 4 + 1 + this.offsetSize + heap.offsetBytes;
     const entries = directRows * heap.width + indirectRows * heap.width;
-    const block = await this.read(address, prefix + entries * this.offsetSize);
+    const block = await this.structure(address, prefix + entries * this.offsetSize);
     const c = this.cursor(block, prefix);
     const addresses = [];
     for (let i = 0; i < entries; i++) addresses.push(c.addr());
@@ -888,8 +916,12 @@ export class Hdf5File {
       cum.push({ max, cumMax, cumSize: encodedSize(cumMax) });
     }
     const records = [];
+    const seen = new Set();
     const visit = async (node, count, level) => {
-      const body = await this.read(node, nodeSize);
+      if (seen.has(node)) throw new Hdf5Error("An index points back at itself; the file may be damaged.");
+      seen.add(node);
+      this.spend(count);
+      const body = await this.structure(node, nodeSize);
       const n = this.cursor(body);
       n.signature(level === 0 ? "BTLF" : "BTIN");
       n.skip(2);
@@ -1046,6 +1078,7 @@ export class Hdf5File {
     }
     const n = product(count);
     const size = info.type.size;
+    if (n > MAX_VALUES) throw new Hdf5Error(`That's ${n} values; ask for at most ${MAX_VALUES} at a time.`);
     if (n * size > MAX_READ_BYTES) throw new Hdf5Error(`That's ${Math.round((n * size) / 1e6)} MB; ask for a smaller slice.`);
     const out = Buffer.alloc(n * size);
     if (info.fill && info.fill.length === size) for (let i = 0; i < n; i++) info.fill.copy(out, i * size);
@@ -1105,13 +1138,18 @@ export class Hdf5File {
     const dims = info.space.dims;
     const chunk = info.layout.chunk;
     const size = info.type.size;
+    const chunkBytes = product(chunk) * size;
+    if (chunkBytes > MAX_READ_BYTES || chunk.some((d) => d <= 0)) throw new Hdf5Error("This dataset's chunks are larger than brainhound will read; the file may be damaged.");
     const chunks = await this.chunksFor(info, start, count);
     let total = 0;
     const work = chunks.map((c) => async () => {
       total += c.size;
       if (total > MAX_READ_BYTES) throw new Hdf5Error("That slice touches too much compressed data; ask for a smaller one.");
       let bytes = await this.read(c.address, c.size);
-      bytes = this.unfilter(bytes, info.filters, c.mask, product(chunk) * size, size);
+      // Edge chunks can be stored unfiltered when the file asks for it.
+      const partial = c.offset.some((o, i) => o + chunk[i] > dims[i]);
+      const mask = info.layout.dontFilterPartial && partial ? 0xffffffff : c.mask;
+      bytes = this.unfilter(bytes, info.filters, mask, chunkBytes, size);
       copyBlock(bytes, chunk, out, start, count, c.offset, dims, size);
     });
     await runLimited(work, 6);
@@ -1123,12 +1161,22 @@ export class Hdf5File {
       const f = filters[i];
       if (f.id === 1) {
         try {
-          bytes = inflateSync(bytes);
+          // A chunk never inflates past its own size (plus a checksum), so anything bigger is refused.
+          bytes = inflateSync(bytes, { maxOutputLength: expected + 4 });
         } catch {
-          throw new Hdf5Error("A compressed chunk is damaged.");
+          throw new Hdf5Error("A compressed chunk is damaged or inflates past its size.");
         }
       } else if (f.id === 2) bytes = unshuffle(bytes, f.params[0] ?? elementSize);
-      else if (f.id === 3) bytes = bytes.subarray(0, bytes.length - 4);
+      else if (f.id === 3) {
+        if (bytes.length < 4) throw new Hdf5Error("A checksummed chunk is cut short.");
+        const data = bytes.subarray(0, bytes.length - 4);
+        const stored = bytes.readUInt32LE(bytes.length - 4);
+        const sum = fletcher32(data);
+        // Very old files stored the checksum with its bytes swapped; HDF5 accepts both.
+        const swapped = ((sum & 0xff) << 24) | ((sum & 0xff00) << 8) | ((sum >>> 8) & 0xff00) | (sum >>> 24);
+        if (stored !== sum && stored !== swapped >>> 0) throw new Hdf5Error("A chunk's checksum doesn't match; the file is damaged.");
+        bytes = data;
+      }
       else if (!f.optional) throw new Hdf5Error(`This dataset is stored with the ${f.name} filter, which brainhound can't undo yet. Only gzip, shuffle and fletcher32 are supported.`);
     }
     if (bytes.length < expected) {
@@ -1146,8 +1194,9 @@ export class Hdf5File {
     const chunk = layout.chunk;
     const overlaps = (offset) => offset.every((o, i) => o < start[i] + count[i] && o + chunk[i] > start[i]);
     const raw = product(chunk) * type.size;
-    if (layout.index === "btree1") return this.btree1Chunks(layout.address, dims.length, start, count, chunk, overlaps);
+    // Never written: no chunks, so the fill value stands.
     if (layout.address === UNDEFINED) return [];
+    if (layout.index === "btree1") return this.btree1Chunks(layout.address, dims.length, start, count, chunk, overlaps);
     if (layout.index === "single") {
       const offset = dims.map(() => 0);
       return [{ offset, address: layout.address, size: layout.filteredSize ?? raw, mask: layout.filterMask ?? 0 }];
@@ -1188,16 +1237,19 @@ export class Hdf5File {
   async btree1Chunks(root, rank, start, count, chunk, overlaps) {
     const keySize = 8 + 8 * (rank + 1);
     const found = [];
+    const seen = new Set();
     const visit = async (node, expected = -1) => {
+      if (seen.has(node)) throw new Hdf5Error("A dataset's chunk index points back at itself; the file may be damaged.");
+      seen.add(node);
       const prefix = 8 + 2 * this.offsetSize;
-      const head = await this.read(node, prefix);
+      const head = await this.structure(node, prefix);
       const c = this.cursor(head);
       c.signature("TREE");
       const type = c.u8();
       const level = c.u8();
       const used = c.u16();
       if (type !== 1 || (expected >= 0 && level !== expected)) throw new Hdf5Error("A dataset's chunk index is damaged.");
-      const body = await this.read(node + prefix, (used + 1) * keySize + used * this.offsetSize);
+      const body = await this.structure(node + prefix, (used + 1) * keySize + used * this.offsetSize);
       const b = this.cursor(body);
       const keys = [];
       const children = [];
@@ -1256,7 +1308,7 @@ export class Hdf5File {
     return async (i) => {
       if (i >= entries) return null;
       if (!paged) {
-        whole ??= await this.read(dataBlock, prefix + entries * entrySize);
+        whole ??= await this.structure(dataBlock, prefix + entries * entrySize);
         return readEntry(this.cursor(whole, prefix + i * entrySize));
       }
       const page = Math.floor(i / pageSize);
@@ -1388,6 +1440,34 @@ function step(index, lo, hi) {
     index[d] = lo[d];
   }
   return false;
+}
+
+/** HDF5's Fletcher-32 checksum, over 16-bit big-endian words, as in its H5_checksum_fletcher32. */
+export function fletcher32(data) {
+  let sum1 = 0;
+  let sum2 = 0;
+  let i = 0;
+  let words = data.length >> 1;
+  while (words) {
+    let block = words > 360 ? 360 : words;
+    words -= block;
+    do {
+      sum1 += (data[i] << 8) | data[i + 1];
+      i += 2;
+      sum2 += sum1;
+    } while (--block);
+    sum1 = (sum1 & 0xffff) + (sum1 >>> 16);
+    sum2 = (sum2 & 0xffff) + (sum2 >>> 16);
+  }
+  if (data.length & 1) {
+    sum1 += data[i] << 8;
+    sum2 += sum1;
+    sum1 = (sum1 & 0xffff) + (sum1 >>> 16);
+    sum2 = (sum2 & 0xffff) + (sum2 >>> 16);
+  }
+  sum1 = (sum1 & 0xffff) + (sum1 >>> 16);
+  sum2 = (sum2 & 0xffff) + (sum2 >>> 16);
+  return ((sum2 << 16) | sum1) >>> 0;
 }
 
 function unshuffle(bytes, elementSize) {

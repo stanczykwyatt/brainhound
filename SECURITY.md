@@ -19,7 +19,7 @@ Please report security problems privately through **Security → Report a vulner
   Any other address is refused before a request is made, and so is a redirect to one. Addresses with a user name or password are refused. Nothing an agent sends can add a host.
 - **Sends nothing about you.** Requests carry a plain `brainhound/<version>` user agent and no cookies, keys or tokens. It reads no environment variables. Search terms and ids go to the archive they're for, as they would from its website.
 - **Spaces out requests** to each host (100 ms apart), and only calls the archives' documented APIs, one question at a time. It never crawls.
-- **Reads NWB and HDF5 files** with its own small reader, which only parses: it follows the file's structure to the bytes asked for, decompresses gzip, and undoes shuffle. Damaged or hostile files make it stop with an error; it never runs anything from a file. One read gathers at most 128 MB.
+- **Reads NWB and HDF5 files** with its own small reader, which only parses: it follows the file's structure to the bytes asked for, decompresses gzip, and undoes shuffle. Damaged or hostile files make it stop with an error; it never runs anything from a file. It has hard limits: one read gathers at most 128 MB and 10 million values, a piece of the file's own bookkeeping at most 16 MB, compressed chunks may not inflate past their size, index loops are refused, and each question may visit at most 200,000 index nodes. Fletcher-32 checksums are verified. A server that ignores range requests is used only for files under 16 MB.
 - **Talks over stdio only:** MCP messages with the agent on stdin and stdout.
 
 ## What it doesn't do

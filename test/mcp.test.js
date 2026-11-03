@@ -94,3 +94,14 @@ test("`brainhound serve` speaks MCP over stdio and reads a local file in --files
   assert.equal(byId[3].result.isError, true);
   assert.match(byId[3].result.content[0].text, /outside the folder/);
 });
+
+test("closing stdin still answers requests in flight, even a last line with no newline", async () => {
+  const child = spawn(process.execPath, [path.resolve("src/cli.js"), "serve", "--files", path.dirname(fixture("latest.nwb"))], { stdio: ["pipe", "pipe", "pipe"] });
+  let out = "";
+  child.stdout.on("data", (c) => (out += c));
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "nwb_summary", arguments: { asset: "earliest.nwb" } } }) + "\n");
+  child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" }));
+  await new Promise((r) => child.on("exit", r));
+  const ids = out.trim().split("\n").map((l) => JSON.parse(l).id).sort();
+  assert.deepEqual(ids, [1, 2]);
+});
